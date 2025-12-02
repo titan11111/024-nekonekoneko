@@ -3,77 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>猫キャッチゲーム</title>
+    <title>給食ねこパニック！</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="game-container">
-        <h1>🐱 猫みっけゲーム 🐱</h1>
-        
-        <div class="game-info">
-            <div class="score">スコア: <span id="score">0</span></div>
-            <div class="time">残り時間: <span id="time">30</span>秒</div>
-        </div>
-        <div id="scoreComment" class="score-comment"></div>
-        
-        <div class="game-board">
-            <div class="spot trash-can" id="spot1">
-                <div class="spot-label">🗑️ ゴミ箱</div>
-                <img src="images/household_item_1.png" alt="ゴミ箱" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko1.png" alt="ねこ" class="cat-image"></div>
+        <div id="obstacleLayer" class="obstacle-layer"></div>
+
+        <div class="hud-panel">
+            <div class="hud-item score-board">
+                <span class="label">得点</span>
+                <span id="score">0</span>
             </div>
-            <div class="spot table" id="spot2">
-                <div class="spot-label">🍽️ テーブル</div>
-                <img src="images/household_item_2.png" alt="テーブル" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko2.png" alt="ねこ" class="cat-image"></div>
+            <div class="hud-item timer-board">
+                <span class="label">残り時間</span>
+                <span id="time">30</span>秒
             </div>
-            <div class="spot closet" id="spot3">
-                <div class="spot-label">👚 クローゼット</div>
-                <img src="images/household_item_3.png" alt="クローゼット" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko_transparent_4.png" alt="ねこ" class="cat-image"></div>
+            <div class="hud-item combo-board">
+                <span class="label">コンボ</span>
+                <span id="combo">0</span>
             </div>
-            <div class="spot sofa" id="spot4">
-                <div class="spot-label">🛋️ ソファ</div>
-                <img src="images/household_item_4.png" alt="ソファ" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko_transparent_5.png" alt="ねこ" class="cat-image"></div>
-            </div>
-            <div class="spot bed" id="spot5">
-                <div class="spot-label">🛏️ ベッド</div>
-                <img src="images/household_item_5.png" alt="ベッド" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko_transparent_6.png" alt="ねこ" class="cat-image"></div>
-            </div>
-            <div class="spot kitchen" id="spot6">
-                <div class="spot-label">🍳 キッチン</div>
-                <img src="images/household_item_6.png" alt="キッチン" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko_transparent_7.png" alt="ねこ" class="cat-image"></div>
-            </div>
-            <div class="spot bathroom" id="spot7">
-                <div class="spot-label">🚿 お風呂</div>
-                <img src="images/household_item_9.png" alt="お風呂" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko_transparent_8.png" alt="ねこ" class="cat-image"></div>
-            </div>
-            <div class="spot bookshelf" id="spot8">
-                <div class="spot-label">📚 本棚</div>
-                <img src="images/household_item_7.png" alt="本棚" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko1.png" alt="ねこ" class="cat-image"></div>
-            </div>
-            <div class="spot washing-machine" id="spot9">
-                <div class="spot-label">👕 洗濯機</div>
-                <img src="images/household_item_8.png" alt="洗濯機" class="spot-image" width="80" height="80">
-                <div class="cat"><img src="images/neko2.png" alt="ねこ" class="cat-image"></div>
+            <div class="hud-item bomb-board">
+                <span class="label">号令(ボム)</span>
+                <span id="bomb">3</span>回
             </div>
         </div>
-        
-        <div class="game-controls">
-            <button id="startBtn" class="btn">ゲームスタート</button>
-            <button id="resetBtn" class="btn">リセット</button>
-        </div>
-        
-        <div class="game-over" id="gameOver">
-            <h2>ゲーム終了！</h2>
-            <p>あなたのスコア: <span id="finalScore">0</span></p>
-            <button id="playAgainBtn" class="btn">もう一度プレイ</button>
-        </div>
+
+        <div id="gameStage" class="stage">
+            <div id="startScreen" class="overlay start-overlay">
+                <div class="title-box">
+                    <h1 class="title-logo">給食ねこ<br>パニック！</h1>
+                    <p class="subtitle">〜 カレー死守大作戦 〜</p>
+                </div>
+                
+                <div class="instructions">
+                    <p>【あそびかた】</p>
+                    <ul>
+                        <li>🐭 マウスでネコを捕まえろ！</li>
+                        <li>🍛 給食を狙う悪いネコには注意！</li>
+                        <li>💥 右クリックで「号令(ボム)」発動！</li>
+                    </ul>
+                </div>
+
+                <button id="startBtn" class="pop-btn">給食当番、出動！</button>
+            </div>
+            
+            <div id="gameOver" class="overlay result-overlay" style="display: none;">
+                <h2 class="result-title">ごちそうさまでした！</h2>
+                
+                <div class="result-box">
+                    <p>守り抜いた給食点</p>
+                    <span id="finalScore" class="big-score">0</span>
+                    <hr>
+                    <p>あなたの称号</p>
+                    <span id="rankText" class="rank-text">見習い日直</span>
+                </div>
+
+                <button id="playAgainBtn" class="pop-btn secondary">おかわり（再挑戦）</button>
+            </div>
+
+            </div>
     </div>
     
     <script src="main.js"></script>
