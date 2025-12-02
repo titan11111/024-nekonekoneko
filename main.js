@@ -1,232 +1,407 @@
-// ゲームの設定
-let score = 0;
-let timeLeft = 30;
-let gameRunning = false;
-let gameInterval;
-let catInterval;
-let isTouching = false;
+// ゲーム設定
+const CONFIG = {
+    GAME_TIME: 30,
+    SPAWN_RATE: 800, 
+    CAT_LIFETIME: 2000, 
+    CLICKS_TO_CATCH: 3, 
+    SCORE_NORMAL: 100,
+    SCORE_PENALTY: -50,
+    BOMB_COUNT: 3, 
+    FEVER_THRESHOLD: 10, 
+};
 
-// HTMLの要素を取得
-const scoreElement = document.getElementById('score');
-const timeElement = document.getElementById('time');
-const startBtn = document.getElementById('startBtn');
-const resetBtn = document.getElementById('resetBtn');
-const gameOverElement = document.getElementById('gameOver');
-const finalScoreElement = document.getElementById('finalScore');
-const playAgainBtn = document.getElementById('playAgainBtn');
-const spots = document.querySelectorAll('.spot');
-const cats = document.querySelectorAll('.cat');
-const scoreCommentElement = document.getElementById('scoreComment');
+// 状態管理
+let state = {
+    score: 0,
+    time: CONFIG.GAME_TIME,
+    combo: 0,
+    bombs: CONFIG.BOMB_COUNT,
+    isPlaying: false,
+    isFever: false,
+    lastTime: 0,
+    spawnTimer: 0
+};
 
-// 鳴き声ファイルを配列で用意（6,7マス目はnyan8.mp3）
-const catSounds = [
-  new Audio('audio/nyan.mp3'),
-  new Audio('audio/nyan2.mp3'),
-  new Audio('audio/nyan3.mp3'),
-  new Audio('audio/nyan4.mp3'),
-  new Audio('audio/nyan5.mp3'),
-  new Audio('audio/nyan8.mp3'), // 6マス目
-  new Audio('audio/nyan8.mp3'), // 7マス目
-  new Audio('audio/nyan8.mp3'),
-  new Audio('audio/nyan9.mp3')
-];
+// DOM要素
+const els = {
+    stage: document.getElementById('gameStage'),
+    obstacleLayer: document.getElementById('obstacleLayer'),
+    score: document.getElementById('score'),
+    time: document.getElementById('time'),
+    combo: document.getElementById('combo'),
+    bomb: document.getElementById('bomb'),
+    startScreen: document.getElementById('startScreen'),
+    gameOver: document.getElementById('gameOver'),
+    finalScore: document.getElementById('finalScore'),
+    rankText: document.getElementById('rankText'), // 新規追加
+    startBtn: document.getElementById('startBtn'),
+    playAgainBtn: document.getElementById('playAgainBtn')
+};
 
-// ゲーム開始
-function startGame() {
-    if (gameRunning) return;
+// アセット定義（household_itemを追加）
+const ASSETS = {
+    goodCats: [
+        'images/neko1.png', 'images/neko2.png', 'images/neko4.png', 
+        'images/neko5.png', 'images/neko6.png', 'images/neko_transparent_4.png',
+        'images/neko_transparent_5.png', 'images/neko_transparent_6.png'
+    ],
+    badCats: [
+        'images/neko7.png', 'images/neko8.png', 'images/neko_resized_3.png'
+    ],
+    catchEffect: [
+        'images/neko3.png', 'images/neko_jump_surprised_transparent_48.png'
+    ],
+    furniture: [ // 障害物用
+        'images/household_item_1.png', 'images/household_item_2.png',
+        'images/household_item_3.png', 'images/household_item_4.png',
+        'images/household_item_5.png', 'images/household_item_6.png',
+        'images/household_item_7.png', 'images/household_item_8.png'
+    ],
+    sounds: {
+        hit: new Audio('audio/nyan.mp3'),
+        catch: new Audio('audio/nyan2.mp3'),
+        damage: new Audio('audio/nyan7.mp3'),
+        spawn: new Audio('audio/nyan3.mp3'),
+        combo: new Audio('audio/nyan4.mp3'),
+        rare: new Audio('audio/nyan6.mp3'),
+        finish: new Audio('audio/nyan9.mp3')
+    }
+};
+
+function playSound(name) {
+    const sound = ASSETS.sounds[name];
+    if (sound) {
+        sound.currentTime = 0;
+        sound.play().catch(e => console.log('Audio play failed', e));
+    }
+}
+
+// ランク判定ロジック
+function getRank(score) {
+    if (score < 1000) return "万年日直補佐";
+    if (score < 3000) return "ベテラン給食当番";
+    if (score < 5000) return "カレー守護神";
+    return "伝説のネコ使い";
+}
+
+// 障害物（家具）の配置
+function spawnObstacles() {
+    els.obstacleLayer.innerHTML = ''; // リセット
+    const itemCount = 5; // 配置する家具の数
     
-    gameRunning = true;
-    score = 0;
-    timeLeft = 30;
-    
-    updateScore();
-    updateTime();
-    
-    startBtn.textContent = 'ゲーム中...';
-    startBtn.disabled = true;
-    gameOverElement.style.display = 'none';
-    
-    // 猫を定期的に出現させる
-    catInterval = setInterval(showRandomCat, 800);
-    
-    // タイマーを開始
-    gameInterval = setInterval(() => {
-        timeLeft--;
-        updateTime();
+    for (let i = 0; i < itemCount; i++) {
+        const src = ASSETS.furniture[Math.floor(Math.random() * ASSETS.furniture.length)];
+        const el = document.createElement('img');
+        el.src = src;
+        el.className = 'room-item';
         
-        if (timeLeft <= 0) {
+        // ランダムな位置とサイズ
+        const size = 100 + Math.random() * 100;
+        el.style.width = size + 'px';
+        el.style.left = Math.random() * (els.stage.clientWidth - size) + 'px';
+        el.style.top = (els.stage.clientHeight / 2) + Math.random() * (els.stage.clientHeight / 2 - size) + 'px'; // 画面下半分を中心に配置
+        el.style.opacity = '0.9';
+        
+        els.obstacleLayer.appendChild(el);
+    }
+}
+
+// ゲームループ
+function gameLoop(timestamp) {
+    if (!state.isPlaying) return;
+
+    if (!state.lastTime) state.lastTime = timestamp;
+    const deltaTime = timestamp - state.lastTime;
+    
+    state.spawnTimer += deltaTime;
+    
+    const currentSpawnRate = state.isFever ? 200 : CONFIG.SPAWN_RATE;
+
+    if (state.spawnTimer > currentSpawnRate) {
+        spawnCat();
+        state.spawnTimer = 0;
+        if (CONFIG.SPAWN_RATE > 400) CONFIG.SPAWN_RATE -= 2;
+    }
+
+    state.lastTime = timestamp;
+    requestAnimationFrame(gameLoop);
+}
+
+function startTimer() {
+    const timerInterval = setInterval(() => {
+        if (!state.isPlaying) {
+            clearInterval(timerInterval);
+            return;
+        }
+        state.time--;
+        updateDisplay();
+        
+        if (state.time <= 0) {
             endGame();
         }
     }, 1000);
 }
 
-// ランダムな猫を表示
-function showRandomCat() {
-    // 既に表示されている猫を隠す
-    hideAllCats();
+function spawnCat() {
+    const isBad = Math.random() < 0.2; 
+    const catSrc = isBad 
+        ? ASSETS.badCats[Math.floor(Math.random() * ASSETS.badCats.length)]
+        : ASSETS.goodCats[Math.floor(Math.random() * ASSETS.goodCats.length)];
     
-    // ランダムな場所を選択
-    const randomSpot = Math.floor(Math.random() * spots.length);
-    const cat = spots[randomSpot].querySelector('.cat');
+    const cat = document.createElement('img');
+    cat.src = catSrc;
+    cat.className = 'target-cat';
+    cat.dataset.hp = isBad ? 1 : CONFIG.CLICKS_TO_CATCH;
+    cat.dataset.type = isBad ? 'bad' : 'good';
     
-    // 猫を表示
-    cat.classList.add('show');
+    const size = 100;
+    const moveType = Math.random();
     
-    // 1.8秒後に猫を隠す
-    setTimeout(() => {
-        cat.classList.remove('show');
-    }, 1800);
-}
+    cat.style.width = size + 'px';
+    cat.style.transition = `transform ${CONFIG.CAT_LIFETIME/1000}s linear, opacity 0.5s`;
 
-// 全ての猫を隠す
-function hideAllCats() {
-    cats.forEach(cat => {
-        cat.classList.remove('show');
-        cat.classList.remove('clicked');
-    });
-}
-
-// 猫がクリックまたはタッチされた時
-function catchCat(event) {
-    if (!gameRunning) return;
-    // タッチとクリックの二重発火防止
-    if (event.type === 'touchstart') {
-        if (isTouching) return;
-        isTouching = true;
+    if (moveType < 0.2) {
+        // ダッシュ猫
+        cat.classList.add('cat-dash');
+        cat.style.left = els.stage.clientWidth + 'px'; 
+        cat.style.top = Math.random() * (els.stage.clientHeight - size) + 'px';
+    } else {
+        const x = Math.random() * (els.stage.clientWidth - size);
+        const y = Math.random() * (els.stage.clientHeight - size) + (size/2);
+        cat.style.left = x + 'px';
+        cat.style.top = y + 'px';
+        
+        if (moveType < 0.4) {
+            cat.classList.add('cat-zigzag');
+        } else {
+            cat.style.transform = 'scale(0.1)';
+            requestAnimationFrame(() => {
+                cat.style.transform = 'scale(1.0)';
+            });
+        }
     }
-    const cat = event.target;
     
-    // 猫が表示されている場合のみ
-    if (cat.classList.contains('show')) {
-        cat.classList.add('clicked');
-        cat.classList.remove('show');
-        
-        // スコアを増加
-        score += 10;
-        updateScore();
-        
-        // どのマスかを取得
-        const spot = cat.closest('.spot');
-        const spotId = spot ? spot.id : null; // 例: spot1, spot2, ...
-        if (spotId) {
-            const index = parseInt(spotId.replace('spot', '')) - 1;
-            if (catSounds[index]) {
-                catSounds[index].currentTime = 0; // 連打対応
-                catSounds[index].play();
+    els.stage.appendChild(cat);
+    
+    cat.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        handleClick(cat, e.clientX, e.clientY);
+    });
+
+    setTimeout(() => {
+        if (cat.parentNode) {
+            cat.style.opacity = '0';
+            setTimeout(() => cat.remove(), 500);
+            if (cat.dataset.type === 'good' && cat.dataset.hp > 0) {
+                resetCombo(); 
             }
         }
-        
-        // 効果音の代わりに振動（スマホ対応）
-        if (navigator.vibrate) {
-            navigator.vibrate(50);
+    }, CONFIG.CAT_LIFETIME);
+}
+
+function handleClick(cat, x, y) {
+    if (!state.isPlaying) return;
+
+    const type = cat.dataset.type;
+    
+    if (type === 'bad') {
+        damagePenalty(x, y);
+        cat.remove();
+        return;
+    }
+
+    let hp = parseInt(cat.dataset.hp);
+    hp--;
+    cat.dataset.hp = hp;
+
+    cat.style.filter = 'brightness(200%)';
+    setTimeout(() => cat.style.filter = 'none', 100);
+    
+    if (!cat.classList.contains('cat-dash')) { 
+        const offsetX = (Math.random() - 0.5) * 20;
+        const offsetY = (Math.random() - 0.5) * 20;
+        cat.style.transform = `scale(1.0) translate(${offsetX}px, ${offsetY}px)`;
+    }
+
+    if (hp <= 0) {
+        catchSuccess(cat, x, y);
+    } else {
+        playSound('hit');
+    }
+}
+
+function catchSuccess(cat, x, y) {
+    state.combo++;
+    if (state.combo >= CONFIG.FEVER_THRESHOLD && !state.isFever) {
+        startFever();
+    }
+
+    let multiplier = state.isFever ? 2 : 1;
+    const bonus = Math.min(state.combo * 10, 500);
+    const getPoint = (CONFIG.SCORE_NORMAL + bonus) * multiplier;
+    state.score += getPoint;
+    
+    playSound('catch');
+    if (state.combo % 5 === 0) playSound('combo');
+
+    const surpriseSrc = ASSETS.catchEffect[Math.floor(Math.random() * ASSETS.catchEffect.length)];
+    cat.src = surpriseSrc;
+    cat.classList.remove('cat-dash', 'cat-zigzag'); 
+    cat.style.transform = 'scale(1.2) rotate(360deg)';
+    cat.style.opacity = '0';
+    
+    showFloatingText(x, y, `+${getPoint}`, '#ff8c00'); // オレンジ色
+    
+    updateDisplay();
+    setTimeout(() => {
+        if (cat.parentNode) cat.remove();
+    }, 300);
+}
+
+function damagePenalty(x, y) {
+    state.score += CONFIG.SCORE_PENALTY;
+    state.time -= 3;
+    playSound('damage');
+    resetCombo();
+    
+    els.stage.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+    setTimeout(() => els.stage.style.backgroundColor = 'transparent', 100);
+    
+    showFloatingText(x || els.stage.clientWidth/2, y || els.stage.clientHeight/2, "つまみ食い! -3秒", "red");
+    updateDisplay();
+}
+
+function resetCombo() {
+    state.combo = 0;
+    if (state.isFever) {
+        state.isFever = false;
+        els.stage.classList.remove('fever-mode');
+        CONFIG.SPAWN_RATE = 800;
+    }
+    updateDisplay();
+}
+
+function startFever() {
+    state.isFever = true;
+    els.stage.classList.add('fever-mode');
+    playSound('rare');
+    showFloatingText(els.stage.clientWidth/2, els.stage.clientHeight/2, "給食ラッシュ!!", "#ff00ff");
+    setTimeout(() => {
+        if (state.isFever) {
+            state.isFever = false;
+            els.stage.classList.remove('fever-mode');
         }
-        
-        // 0.5秒後にクリック効果を削除
-        setTimeout(() => {
-            cat.classList.remove('clicked');
-        }, 500);
-    }
+    }, 10000);
 }
 
-// スコアを更新
-function updateScore() {
-    scoreElement.textContent = score;
-    // スコアに応じたコメント
-    let comment = '';
-    if (score <= 30) {
-        comment = 'これからが本番！猫ちゃんも応援してるよ！';
-    } else if (score <= 60) {
-        comment = 'すごい！猫ちゃんもなついてきたみたい！';
-    } else if (score <= 90) {
-        comment = '猫マスターの素質あり！みんな集まってきた！';
-    } else if (score <= 120) {
-        comment = '猫界のヒーロー！猫たちがあなたを慕ってる！';
-    } else {
-        comment = '伝説のキャットキャッチャー！猫神様もびっくり！';
-    }
-    scoreCommentElement.textContent = comment;
-}
-
-// 時間を更新
-function updateTime() {
-    timeElement.textContent = timeLeft;
+function triggerBomb() {
+    if (!state.isPlaying || state.bombs <= 0) return;
     
-    // 残り時間が少なくなったら色を変更
-    if (timeLeft <= 10) {
-        timeElement.style.color = '#dc3545';
-        timeElement.style.fontWeight = 'bold';
-    } else {
-        timeElement.style.color = '#007bff';
-        timeElement.style.fontWeight = 'normal';
-    }
+    state.bombs--;
+    updateDisplay();
+    
+    const flash = document.createElement('div');
+    flash.className = 'bomb-flash'; // CSSで定義が必要（style.cssには既存である前提）
+    els.stage.appendChild(flash);
+    setTimeout(() => flash.remove(), 500);
+    
+    const cats = document.querySelectorAll('.target-cat');
+    let caughtCount = 0;
+    
+    cats.forEach(cat => {
+        const type = cat.dataset.type;
+        if (type === 'good') {
+            const rect = cat.getBoundingClientRect();
+            // 座標調整（簡易）
+            catchSuccess(cat, rect.left, rect.top);
+            caughtCount++;
+        } else {
+            cat.remove();
+        }
+    });
+    
+    if (caughtCount > 0) playSound('finish'); 
 }
 
-// ゲーム終了
+function showFloatingText(x, y, text, color = '#ffff00') {
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.className = 'float-text'; // クラスでスタイル指定
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.color = color;
+    el.style.transition = 'top 1s, opacity 1s';
+    
+    document.body.appendChild(el); 
+    
+    requestAnimationFrame(() => {
+        el.style.top = (y - 50) + 'px';
+        el.style.opacity = '0';
+    });
+    
+    setTimeout(() => el.remove(), 1000);
+}
+
+function updateDisplay() {
+    els.score.textContent = state.score;
+    els.time.textContent = Math.max(0, state.time);
+    els.combo.textContent = state.combo;
+    if(els.bomb) els.bomb.textContent = state.bombs;
+}
+
+function startGame() {
+    state = {
+        score: 0,
+        time: CONFIG.GAME_TIME,
+        combo: 0,
+        bombs: CONFIG.BOMB_COUNT,
+        isPlaying: true,
+        isFever: false,
+        lastTime: 0,
+        spawnTimer: 0
+    };
+    CONFIG.SPAWN_RATE = 800;
+    
+    // リセット処理
+    document.querySelectorAll('.target-cat').forEach(el => el.remove());
+    
+    // 障害物（家具）を配置
+    spawnObstacles();
+    
+    els.startScreen.style.display = 'none';
+    els.gameOver.style.display = 'none';
+    els.stage.classList.remove('fever-mode');
+    
+    updateDisplay();
+    playSound('spawn');
+    
+    startTimer();
+    requestAnimationFrame(gameLoop);
+}
+
 function endGame() {
-    gameRunning = false;
+    state.isPlaying = false;
+    playSound('finish');
     
-    // インターバルを停止
-    clearInterval(gameInterval);
-    clearInterval(catInterval);
-    
-    // 全ての猫を隠す
-    hideAllCats();
-    
-    // ボタンを元に戻す
-    startBtn.textContent = 'ゲームスタート';
-    startBtn.disabled = false;
-    
-    // 最終スコアを表示
-    finalScoreElement.textContent = score;
-    gameOverElement.style.display = 'block';
+    els.finalScore.textContent = state.score;
+    els.rankText.textContent = getRank(state.score); // ランク表示
+    els.gameOver.style.display = 'flex';
 }
 
-// ゲームをリセット
-function resetGame() {
-    gameRunning = false;
-    
-    // インターバルを停止
-    clearInterval(gameInterval);
-    clearInterval(catInterval);
-    
-    // 値をリセット
-    score = 0;
-    timeLeft = 30;
-    
-    // 表示を更新
-    updateScore();
-    updateTime();
-    
-    // 全ての猫を隠す
-    hideAllCats();
-    
-    // ボタンを元に戻す
-    startBtn.textContent = 'ゲームスタート';
-    startBtn.disabled = false;
-    
-    // ゲームオーバー画面を隠す
-    gameOverElement.style.display = 'none';
-}
+// イベントリスナー
+els.startBtn.addEventListener('click', startGame);
+els.playAgainBtn.addEventListener('click', startGame);
 
-// イベントリスナーを追加
-startBtn.addEventListener('click', startGame);
-resetBtn.addEventListener('click', resetGame);
-playAgainBtn.addEventListener('click', resetGame);
-
-// 各猫にクリックイベントを追加
-cats.forEach(cat => {
-    cat.addEventListener('click', catchCat);
+document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+        e.preventDefault();
+        triggerBomb();
+    }
 });
 
-// スマホのタッチイベントにも対応
-cats.forEach(cat => {
-    cat.addEventListener('touchstart', catchCat);
-    cat.addEventListener('touchend', () => { isTouching = false; });
-});
-
-// ページ読み込み時の初期化
-window.addEventListener('load', () => {
-    updateScore();
-    updateTime();
-    hideAllCats();
+document.addEventListener('contextmenu', (e) => {
+    if (state.isPlaying) {
+        e.preventDefault();
+        triggerBomb();
+    }
 });
